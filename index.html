@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700;900&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Quicksand', sans-serif; background-color: #0f0a1a; color: #f9a8d4; }
@@ -38,6 +39,9 @@
         const ArrowRight = (props) => <Icon {...props}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></Icon>;
         const RotateCcw = (props) => <Icon {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>;
         const Grid = (props) => <Icon {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></Icon>;
+        const FileText = (props) => <Icon {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></Icon>;
+        const Download = (props) => <Icon {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
+        const Award = (props) => <Icon {...props}><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></Icon>;
         const Eye = (props) => <Icon {...props}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
         const EyeOff = (props) => <Icon {...props}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></Icon>;
         const AlertTriangle = (props) => <Icon {...props}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>;
@@ -80,6 +84,7 @@
 
         function RemoteApp() {
             const [status, setStatus] = useState('Initializing...');
+            const [view, setView] = useState('play'); // 'play' or 'summary'
             const [gameData, setGameData] = useState(null);
             const [gamesList, setGamesList] = useState([]);
             const [results, setResults] = useState([]);
@@ -94,10 +99,9 @@
             const [isConnected, setIsConnected] = useState(false);
             const [myAnswers, setMyAnswers] = useState({}); 
             const [revealedCards, setRevealedCards] = useState(new Set());
-            
             const [confirmation, setConfirmation] = useState(null);
-            
             const chatEndRef = useRef(null);
+            const reportRef = useRef(null);
 
             useEffect(() => {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -306,11 +310,20 @@
                 }
             }, [messages, showChat]);
 
+            const exportReport = async () => {
+                if (!reportRef.current) return;
+                const canvas = await html2canvas(reportRef.current, { backgroundColor: '#0f0a1a', scale: 2 });
+                const link = document.createElement('a');
+                link.download = `${gameData.name}_summary.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            };
+
             return (
                 <div className="min-h-screen p-6 flex flex-col items-center gap-8 relative overflow-hidden">
                     <header className="w-full flex justify-between items-center mt-6 z-10 px-4">
-                        <button onClick={disconnectSession} className={`w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-red-500 hover:text-white transition-colors text-pink-300 ${!isConnected ? 'opacity-0 pointer-events-none' : ''}`} title="Disconnect">
-                            <LogOut size={18} />
+                        <button onClick={() => setView(view === 'play' ? 'summary' : 'play')} className={`w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-pink-500 hover:text-white transition-colors text-pink-300 ${!isConnected ? 'opacity-0 pointer-events-none' : ''}`}>
+                            {view === 'play' ? <FileText size={18} /> : <ArrowRight className="rotate-180" size={18} />}
                         </button>
                         <div className="text-center">
                             <h1 className="text-3xl font-black uppercase tracking-tighter italic">Game <span className="text-white">Remote</span></h1>
@@ -321,82 +334,115 @@
                         </button>
                     </header>
 
-                    {!isConnected && (
-                        <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10 mt-10">
-                            <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
-                                <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
-                                <input 
-                                    value={manualId}
-                                    onChange={e => setManualId(e.target.value)}
-                                    placeholder="paste-code-here"
-                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-center text-lg font-bold text-white outline-none focus:border-pink-500/50 transition-colors placeholder:text-white/10"
-                                />
-                                <button type="submit" className="kawaii-btn w-full py-4 rounded-2xl text-lg font-black uppercase shadow-xl mt-2 flex items-center justify-center gap-2">
-                                    Join <ArrowRight size={20} />
-                                </button>
-                            </div>
-                        </form>
-                    )}
+                    {view === 'play' ? (
+                        <>
+                            {!isConnected && (
+                                <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10 mt-10">
+                                    <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
+                                        <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
+                                        <input 
+                                            value={manualId}
+                                            onChange={e => setManualId(e.target.value)}
+                                            placeholder="paste-code-here"
+                                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-center text-lg font-bold text-white outline-none focus:border-pink-500/50 transition-colors placeholder:text-white/10"
+                                        />
+                                        <button type="submit" className="kawaii-btn w-full py-4 rounded-2xl text-lg font-black uppercase shadow-xl mt-2 flex items-center justify-center gap-2">
+                                            Join <ArrowRight size={20} />
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
 
-                    {isConnected && gameData && (
-                        <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in z-10 pb-24">
-                            <div className="glass p-6 rounded-[2.5rem] text-center relative">
-                                <h2 className="text-xl font-black text-white truncate">{gameData.name}</h2>
-                                <p className="text-[10px] font-bold opacity-40 uppercase mt-1">
-                                    {Object.keys(gameData.questions).length} Qs • Local History: {history.length}
-                                </p>
-                                <button onClick={resetLocalHistory} className="absolute top-6 right-6 text-pink-500 hover:text-white transition-colors" title="Reset History">
-                                    <RotateCcw size={16} />
-                                </button>
-                            </div>
+                            {isConnected && gameData && (
+                                <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in z-10 pb-24">
+                                    <div className="glass p-6 rounded-[2.5rem] text-center relative">
+                                        <h2 className="text-xl font-black text-white truncate">{gameData.name}</h2>
+                                        <p className="text-[10px] font-bold opacity-40 uppercase mt-1">
+                                            {Object.keys(gameData.questions).length} Qs • Local History: {history.length}
+                                        </p>
+                                        <button onClick={resetLocalHistory} className="absolute top-6 right-6 text-pink-500 hover:text-white transition-colors" title="Reset History">
+                                            <RotateCcw size={16} />
+                                        </button>
+                                    </div>
 
-                            <button onClick={drawCards} className="kawaii-btn w-full py-8 rounded-[2.5rem] text-2xl font-black uppercase shadow-2xl shadow-pink-500/20 active:scale-95 transition-transform">
-                                Draw Cards ✨
+                                    <button onClick={drawCards} className="kawaii-btn w-full py-8 rounded-[2.5rem] text-2xl font-black uppercase shadow-2xl shadow-pink-500/20 active:scale-95 transition-transform">
+                                        Draw Cards ✨
+                                    </button>
+
+                                    <div className="flex flex-col gap-6 mt-4">
+                                        {results.length === 0 && history.length === 0 && (
+                                            <p className="text-center text-white/30 text-sm font-bold italic">Ready to play!</p>
+                                        )}
+                                        {results.map((num, i) => {
+                                            const q = gameData.questions[num];
+                                            const isWild = q?.type === 'wildcard';
+                                            const isRevealed = revealedCards.has(num);
+                                            return (
+                                                <div key={i} className={`glass p-5 rounded-3xl flex flex-col gap-4 relative ${isWild ? 'border-pink-500/40 bg-pink-500/5' : ''}`}>
+                                                    {!isWild && (
+                                                        <button 
+                                                            onClick={() => toggleReveal(num)}
+                                                            className="absolute top-4 right-4 text-pink-300/50 hover:text-white transition-colors"
+                                                        >
+                                                            {isRevealed ? <EyeOff size={16}/> : <Eye size={16}/>}
+                                                        </button>
+                                                    )}
+                                                    
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-3xl font-black italic text-white">#{num}</span>
+                                                        <p 
+                                                            className={`text-sm font-bold opacity-80 leading-tight transition-all duration-500 ${isRevealed || isWild ? 'blur-0' : 'blur-md select-none'}`}
+                                                            onClick={() => !isWild && !isRevealed && toggleReveal(num)}
+                                                        >
+                                                            {q?.text || '---'}
+                                                        </p>
+                                                    </div>
+                                                    
+                                                    {!isWild && (
+                                                        <div className="relative">
+                                                            <input 
+                                                                placeholder="Your answer..."
+                                                                className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-pink-500/50 transition-colors"
+                                                                value={myAnswers[num] || ''}
+                                                                onChange={e => setMyAnswers(prev => ({ ...prev, [num]: e.target.value }))}
+                                                                onBlur={(e) => submitAnswer(num, e.target.value)}
+                                                                onKeyDown={(e) => { if(e.key === 'Enter') { e.currentTarget.blur(); } }}
+                                                            />
+                                                            {gameData.answers && gameData.answers[num] && Object.values(gameData.answers[num]).length > 0 && (
+                                                                <div className="mt-2 text-[10px] text-pink-300 opacity-60 italic">
+                                                                    {Object.keys(gameData.answers[num]).length} answer(s) submitted
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <div className="w-full max-w-sm flex flex-col gap-6 animate-in slide-in-from-right-10 pb-24 z-10">
+                            <button onClick={exportReport} className="kawaii-btn w-full py-4 rounded-2xl font-black uppercase flex items-center justify-center gap-2">
+                                <Download size={18} /> Save Report
                             </button>
-
-                            <div className="flex flex-col gap-6 mt-4">
-                                {results.length === 0 && history.length === 0 && (
-                                    <p className="text-center text-white/30 text-sm font-bold italic">Ready to play!</p>
-                                )}
-                                {results.map((num, i) => {
-                                    const isRevealed = revealedCards.has(num);
-                                    return (
-                                        <div key={i} className="glass p-5 rounded-3xl flex flex-col gap-4 relative">
-                                            <button 
-                                                onClick={() => toggleReveal(num)}
-                                                className="absolute top-4 right-4 text-pink-300/50 hover:text-white transition-colors"
-                                            >
-                                                {isRevealed ? <EyeOff size={16}/> : <Eye size={16}/>}
-                                            </button>
-                                            
-                                            <div className="flex items-center gap-4">
-                                                <span className="text-3xl font-black italic text-white">#{num}</span>
-                                                <p 
-                                                    className={`text-sm font-bold opacity-80 leading-tight transition-all duration-500 ${isRevealed ? 'blur-0' : 'blur-md select-none'}`}
-                                                    onClick={() => !isRevealed && toggleReveal(num)}
-                                                >
-                                                    {gameData.questions[num]?.text || '---'}
-                                                </p>
-                                            </div>
-                                            
-                                            <div className="relative">
-                                                <input 
-                                                    placeholder="Your answer..."
-                                                    className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-pink-500/50 transition-colors"
-                                                    value={myAnswers[num] || ''}
-                                                    onChange={e => setMyAnswers(prev => ({ ...prev, [num]: e.target.value }))}
-                                                    onBlur={(e) => submitAnswer(num, e.target.value)}
-                                                    onKeyDown={(e) => { if(e.key === 'Enter') { e.currentTarget.blur(); } }}
-                                                />
-                                                {gameData.answers && gameData.answers[num] && Object.values(gameData.answers[num]).length > 0 && (
-                                                     <div className="mt-2 text-[10px] text-pink-300 opacity-60 italic">
-                                                        {Object.keys(gameData.answers[num]).length} answer(s) submitted
-                                                     </div>
-                                                )}
-                                            </div>
+                            
+                            <div ref={reportRef} className="glass p-8 rounded-[3rem] flex flex-col gap-6 text-center relative overflow-hidden">
+                                <Award className="mx-auto text-pink-400" size={32} />
+                                <h3 className="text-xl font-black uppercase text-white">My Summary</h3>
+                                <div className="flex flex-col gap-4 text-left mt-4">
+                                    {history.filter(id => myAnswers[id]).map(id => (
+                                        <div key={id} className="border-l-2 border-pink-500/30 pl-4 py-1">
+                                            <p className="text-[10px] font-black uppercase text-pink-300 opacity-40">Q #{id}</p>
+                                            <p className="text-xs font-bold text-white/80 mb-1">"{gameData.questions[id]?.text}"</p>
+                                            <p className="text-sm font-black text-pink-400">→ {myAnswers[id]}</p>
                                         </div>
-                                    );
-                                })}
+                                    ))}
+                                    {history.filter(id => myAnswers[id]).length === 0 && (
+                                        <p className="text-center opacity-20 italic py-10">No answers recorded yet.</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
