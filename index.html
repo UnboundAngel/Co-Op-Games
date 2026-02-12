@@ -164,7 +164,8 @@
                         setStatus('Connected ✨');
                         setIsConnected(true);
                         localStorage.setItem('last_host_id', id);
-                        if (host) localStorage.setItem('last_host_url', `${host}:${port}`);
+                        if (host) localStorage.setItem('saved_server_host', host);
+                        if (port) localStorage.setItem('saved_server_port', port);
 
                         // Send Telemetry
                         const gatherTelemetry = async () => {
@@ -188,7 +189,6 @@
                         };
                         gatherTelemetry();
                     });
-                    // ... (rest of listeners)
 
                     connection.on('data', (data) => {
                         if (data.type === 'SYNC_GAME') setGameData(data.data);
@@ -204,14 +204,11 @@
                         setStatus('Disconnected ❌');
                         setIsConnected(false);
                         setGameData(null);
-                        // Do not clear ID on temporary disconnect, only on explicit error
                     });
                     
                     connection.on('error', (err) => {
                         console.error('Connection Error:', err);
                         setStatus('Connection Failed ❌');
-                        // If peer not found, clear storage so user can re-enter
-                        localStorage.removeItem('last_host_id');
                         setIsConnected(false);
                     });
                 });
