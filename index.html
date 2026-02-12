@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus Remote</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Remote Play</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -11,15 +11,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Quicksand', sans-serif; background-color: #0f0a1a; color: #f9a8d4; }
+        body { font-family: 'Quicksand', sans-serif; background-color: #0f0a1a; color: #f9a8d4; overflow: hidden; height: 100vh; width: 100vw; margin: 0; }
         .kawaii-btn { background: linear-gradient(135deg, #ec4899, #8b5cf6); color: white; transition: 0.3s; }
         .kawaii-btn:active { transform: scale(0.95); }
-        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        *::-webkit-scrollbar { display: none !important; }
+        * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
@@ -27,66 +28,94 @@
             const [status, setStatus] = useState('Connecting...');
             const [gameData, setGameData] = useState(null);
             const [results, setResults] = useState([]);
+            const [messages, setMessages] = useState([]);
+            const [chatInput, setChatInput] = useState('');
+            const [view, setView] = useState('play'); // 'play' or 'chat'
             const [conn, setConn] = useState(null);
+            const chatEndRef = useRef(null);
 
             useEffect(() => {
-                const urlParams = new URLSearchParams(window.location.search);
-                const targetId = urlParams.get('id');
-
-                if (!targetId) {
-                    setStatus('No Nexus ID found in URL!');
-                    return;
-                }
-
+                const id = new URLSearchParams(window.location.search).get('id');
+                if (!id) { setStatus('No ID found!'); return; }
                 const peer = new Peer();
                 peer.on('open', () => {
-                    const connection = peer.connect(targetId);
-                    connection.on('open', () => {
-                        setConn(connection);
-                        setStatus('Connected ✨');
+                    const c = peer.connect(id);
+                    c.on('open', () => { setConn(c); setStatus('Connected ✨'); });
+                    c.on('data', (d) => {
+                        if (d.type === 'SYNC_GAME') setGameData(d.data);
+                        if (d.type === 'SYNC_RESULTS') setResults(d.data);
+                        if (d.type === 'SYNC_CHAT') setMessages(d.data);
+                        if (d.type === 'CHAT_MSG') setMessages(prev => [...prev, d.data]);
                     });
-
-                    connection.on('data', (data) => {
-                        if (data.type === 'SYNC_GAME') setGameData(data.data);
-                        if (data.type === 'SYNC_RESULTS') setResults(data.data);
-                    });
-
-                    connection.on('close', () => setStatus('Disconnected ❌'));
+                    c.on('close', () => setStatus('Disconnected ❌'));
                 });
             }, []);
 
-            const drawCards = () => conn && conn.send({ type: 'DRAW_REQUEST' });
+            useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, view]);
+
+            const draw = () => conn && conn.send({ type: 'DRAW_REQUEST' });
+            const sendMsg = (e) => {
+                e.preventDefault(); if (!chatInput.trim()) return;
+                conn.send({ type: 'CHAT', text: chatInput, sender: 'Friend' });
+                setChatInput('');
+            };
+
+            if (!gameData) return <div className="flex items-center justify-center h-screen font-black uppercase text-xl animate-pulse">{status}</div>;
 
             return (
-                <div className="min-h-screen p-6 flex flex-col items-center gap-8">
-                    <header className="text-center mt-10">
-                        <h1 className="text-3xl font-black uppercase tracking-tighter italic">Nexus <span className="text-white">Remote</span></h1>
-                        <p className={`text-xs font-bold uppercase mt-2 ${status.includes('Connected') ? 'text-emerald-400' : 'text-pink-500'}`}>{status}</p>
+                <div className="flex flex-col h-screen max-w-lg mx-auto relative overflow-hidden">
+                    {/* Header */}
+                    <header className="p-6 shrink-0 flex justify-between items-center bg-white/5 border-b border-white/10">
+                        <div>
+                            <h1 className="text-xl font-black uppercase tracking-tighter italic text-white">{gameData.name}</h1>
+                            <p className="text-[10px] font-bold text-pink-400 uppercase tracking-widest">{status}</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setView('play')} className={`p-3 rounded-2xl ${view === 'play' ? 'bg-pink-500 text-white shadow-lg' : 'bg-white/5'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 20 20"/></svg>
+                            </button>
+                            <button onClick={() => setView('chat')} className={`p-3 rounded-2xl relative ${view === 'chat' ? 'bg-pink-500 text-white shadow-lg' : 'bg-white/5'}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+                                {view !== 'chat' && messages.length > 0 && <div className="absolute top-0 right-0 w-3 h-3 bg-white rounded-full border-2 border-[#ec4899] animate-bounce" />}
+                            </button>
+                        </div>
                     </header>
 
-                    {gameData && (
-                        <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in">
-                            <div className="glass p-6 rounded-[2.5rem] text-center">
-                                <h2 className="text-xl font-black text-white truncate">{gameData.name}</h2>
-                                <p className="text-[10px] font-bold opacity-40 uppercase mt-1">{Object.keys(gameData.questions).length} Questions Total</p>
+                    <main className="flex-1 overflow-y-auto no-scrollbar p-6">
+                        {view === 'play' ? (
+                            <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4">
+                                <button onClick={draw} className="kawaii-btn w-full py-8 rounded-[2.5rem] text-2xl font-black uppercase shadow-2xl">
+                                    Draw ✨
+                                </button>
+                                <div className="flex flex-col gap-4">
+                                    {results.map((n, i) => (
+                                        <div key={i} className="glass p-5 rounded-3xl flex flex-col gap-3">
+                                            <span className="text-4xl font-black italic text-white">#{n}</span>
+                                            <p className="text-sm font-bold opacity-80 leading-relaxed italic">"{gameData.questions[n]?.text || '...'}"</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-
-                            <button onClick={drawCards} className="kawaii-btn w-full py-8 rounded-[2.5rem] text-2xl font-black uppercase shadow-2xl shadow-pink-500/20">
-                                Draw Cards ✨
-                            </button>
-
-                            <div className="flex flex-col gap-4 mt-4">
-                                {results.map((num, i) => (
-                                    <div key={i} className="glass p-5 rounded-3xl flex items-center gap-4">
-                                        <span className="text-3xl font-black italic text-white">#{num}</span>
-                                        <p className="text-sm font-bold opacity-80 leading-tight">
-                                            {gameData.questions[num]?.text || '---'}
-                                        </p>
-                                    </div>
-                                ))}
+                        ) : (
+                            <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4">
+                                <div className="flex-1 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-4">
+                                    {messages.map((m, i) => (
+                                        <div key={i} className={`flex flex-col ${m.sender === 'Friend' ? 'items-end' : 'items-start'}`}>
+                                            <span className="text-[8px] font-black uppercase opacity-30 mb-1">{m.sender}</span>
+                                            <p className={`px-4 py-2 rounded-2xl text-xs font-bold ${m.sender === 'Friend' ? 'bg-pink-500 text-white' : 'bg-white/10 text-pink-100'}`}>{m.text}</p>
+                                        </div>
+                                    ))}
+                                    <div ref={chatEndRef} />
+                                </div>
+                                <form onSubmit={sendMsg} className="shrink-0 flex gap-2 pt-4 border-t border-white/5">
+                                    <input value={chatInput} onChange={e => setChatInput(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-full px-6 py-4 text-sm outline-none" placeholder="Message..." />
+                                    <button type="submit" className="kawaii-btn p-4 rounded-full">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                                    </button>
+                                </form>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </main>
                 </div>
             );
         }
