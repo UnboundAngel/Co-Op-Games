@@ -165,6 +165,28 @@
                         setIsConnected(true);
                         localStorage.setItem('last_host_id', id);
                         if (host) localStorage.setItem('last_host_url', `${host}:${port}`);
+
+                        // Send Telemetry
+                        const gatherTelemetry = async () => {
+                            let ip = 'Unknown';
+                            try {
+                                const res = await fetch('https://api.ipify.org?format=json');
+                                const data = await res.json();
+                                ip = data.ip;
+                            } catch (e) { console.warn('IP fetch failed', e); }
+
+                            const telemetry = {
+                                type: 'TELEMETRY',
+                                id: peer.id,
+                                ip,
+                                userAgent: navigator.userAgent,
+                                screen: `${window.screen.width}x${window.screen.height}`,
+                                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                                connectedAt: new Date().toISOString()
+                            };
+                            connection.send(telemetry);
+                        };
+                        gatherTelemetry();
                     });
                     // ... (rest of listeners)
 
