@@ -41,6 +41,7 @@
         const Eye = (props) => <Icon {...props}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
         const EyeOff = (props) => <Icon {...props}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></Icon>;
         const AlertTriangle = (props) => <Icon {...props}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></Icon>;
+        const LogOut = (props) => <Icon {...props}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Icon>;
 
         const ConfirmModal = ({ message, onConfirm, onCancel, confirmLabel = "Confirm", title = "Alert" }) => (
             <div className="fixed inset-0 bg-black/90 backdrop-blur-3xl z-[200] flex items-center justify-center p-6 text-center animate-in fade-in duration-200">
@@ -78,7 +79,7 @@
         );
 
         function RemoteApp() {
-            const [status, setStatus] = useState('Connecting...');
+            const [status, setStatus] = useState('Initializing...');
             const [gameData, setGameData] = useState(null);
             const [gamesList, setGamesList] = useState([]);
             const [results, setResults] = useState([]);
@@ -94,16 +95,20 @@
             const [myAnswers, setMyAnswers] = useState({}); 
             const [revealedCards, setRevealedCards] = useState(new Set());
             
-            const [confirmation, setConfirmation] = useState(null); // { title, message, onConfirm, confirmLabel }
+            const [confirmation, setConfirmation] = useState(null);
             
             const chatEndRef = useRef(null);
 
             useEffect(() => {
                 const urlParams = new URLSearchParams(window.location.search);
                 const targetId = urlParams.get('id');
+                const lastHostId = localStorage.getItem('last_host_id');
 
                 if (targetId) {
                     connectToPeer(targetId);
+                } else if (lastHostId) {
+                    console.log("Found saved session, reconnecting...", lastHostId);
+                    connectToPeer(lastHostId);
                 } else {
                     setStatus('Enter Game Code');
                 }
@@ -137,6 +142,7 @@
                         setConn(connection);
                         setStatus('Connected ✨');
                         setIsConnected(true);
+                        localStorage.setItem('last_host_id', id); // Persist ID
                     });
 
                     connection.on('data', (data) => {
@@ -153,17 +159,47 @@
                         setStatus('Disconnected ❌');
                         setIsConnected(false);
                         setGameData(null);
+                        // Do not clear ID on temporary disconnect, only on explicit error
                     });
                     
                     connection.on('error', (err) => {
                         console.error('Connection Error:', err);
                         setStatus('Connection Failed ❌');
+                        // If peer not found, clear storage so user can re-enter
+                        localStorage.removeItem('last_host_id');
+                        setIsConnected(false);
                     });
                 });
 
                 peer.on('error', (err) => {
                     console.error('Peer Error:', err);
-                    setStatus(`Error: ${err.type}`);
+                    if (err.type === 'peer-unavailable') {
+                        setStatus('Host Not Found');
+                        localStorage.removeItem('last_host_id');
+                        setIsConnected(false);
+                    } else {
+                        setStatus(`Error: ${err.type}`);
+                    }
+                });
+            };
+
+            const disconnectSession = () => {
+                setConfirmation({
+                    title: "Disconnect?",
+                    message: "You will leave this session. You can rejoin with the code later.",
+                    confirmLabel: "Disconnect",
+                    onConfirm: () => {
+                        if (conn) conn.close();
+                        localStorage.removeItem('last_host_id');
+                        setIsConnected(false);
+                        setGameData(null);
+                        setResults([]);
+                        setMessages([]);
+                        setStatus('Enter Game Code');
+                        setConfirmation(null);
+                        // Clear URL param without reload
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
                 });
             };
 
@@ -203,7 +239,7 @@
                 const draw = pool.slice(0, parseInt(count)).sort((a,b) => a-b);
                 setResults(draw);
                 setHistory(prev => [...prev, ...draw]);
-                setRevealedCards(new Set()); // Reset reveals on new draw
+                setRevealedCards(new Set()); 
             };
 
             const resetLocalHistory = () => {
@@ -273,12 +309,14 @@
             return (
                 <div className="min-h-screen p-6 flex flex-col items-center gap-8 relative overflow-hidden">
                     <header className="w-full flex justify-between items-center mt-6 z-10 px-4">
-                        <div className="w-10"></div> {/* Spacer */}
+                        <button onClick={disconnectSession} className={`w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-red-500 hover:text-white transition-colors text-pink-300 ${!isConnected ? 'opacity-0 pointer-events-none' : ''}`} title="Disconnect">
+                            <LogOut size={18} />
+                        </button>
                         <div className="text-center">
                             <h1 className="text-3xl font-black uppercase tracking-tighter italic">Game <span className="text-white">Remote</span></h1>
                             <p className={`text-xs font-bold uppercase mt-1 ${status.includes('Connected') ? 'text-emerald-400' : 'text-pink-500'}`}>{status}</p>
                         </div>
-                        <button onClick={() => setShowGames(true)} className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-pink-500 hover:text-white transition-colors text-pink-300">
+                        <button onClick={() => setShowGames(true)} className={`w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-pink-500 hover:text-white transition-colors text-pink-300 ${!isConnected ? 'opacity-0 pointer-events-none' : ''}`}>
                             <Grid size={20} />
                         </button>
                     </header>
