@@ -109,29 +109,51 @@
             useEffect(() => {
                 const params = new URLSearchParams(window.location.search);
                 const targetId = params.get('id');
-                const host = params.get('host');
-                const port = params.get('port');
+                const urlHost = params.get('host');
+                const urlPort = params.get('port');
                 
-                if (host) setServerHost(host);
-                if (port) setServerPort(port);
+                // Load saved settings
+                const savedHost = localStorage.getItem('saved_server_host');
+                const savedPort = localStorage.getItem('saved_server_port');
+                
+                const effectiveHost = urlHost || savedHost || '';
+                const effectivePort = urlPort || savedPort || '25565';
+                
+                setServerHost(effectiveHost);
+                setServerPort(effectivePort);
 
                 const lastHostId = localStorage.getItem('last_host_id');
-                const lastHostUrl = localStorage.getItem('last_host_url'); // store host:port
 
-                if (targetId && host) {
-                    connectToPeer(targetId, host, port || '25565');
-                } else if (lastHostId && lastHostUrl) {
-                    const [savedHost, savedPort] = lastHostUrl.split(':');
-                    console.log("Found saved session, reconnecting...", lastHostId, savedHost, savedPort);
-                    setServerHost(savedHost);
-                    setServerPort(savedPort);
-                    connectToPeer(lastHostId, savedHost, savedPort);
+                if (targetId) {
+                    // Fix: Join even if host is null (defaults to Cloud)
+                    connectToPeer(targetId, urlHost, urlPort || '25565');
+                } else if (lastHostId && effectiveHost) {
+                    console.log("Found saved session, reconnecting...", lastHostId, effectiveHost, effectivePort);
+                    connectToPeer(lastHostId, effectiveHost, effectivePort);
                 } else {
                     setStatus('Enter Game Code');
                 }
             }, []);
 
-            // ... (history effects) ...
+            useEffect(() => {
+                if (gameData && gameData.name) {
+                    const saved = localStorage.getItem(`nexus_history_${gameData.name}`);
+                    if (saved) {
+                        try {
+                            setHistory(JSON.parse(saved));
+                        } catch(e) {}
+                    }
+                }
+            }, [gameData]);
+
+            useEffect(() => {
+                if (gameData && gameData.name) {
+                    localStorage.setItem(`nexus_history_${gameData.name}`, JSON.stringify(history));
+                    if (conn && isConnected) {
+                        conn.send({ type: 'HISTORY_UPDATE', data: history });
+                    }
+                }
+            }, [history, gameData, conn, isConnected]);
 
             const connectToPeer = (id, host, port) => {
                 setStatus('Connecting...');
@@ -192,10 +214,13 @@
 
                     connection.on('data', (data) => {
                         if (data.type === 'SYNC_GAME') setGameData(data.data);
+                        if (data.type === 'SYNC_HISTORY') setHistory(data.data); // Sync from host
                         if (data.type === 'SYNC_GAMES_LIST') setGamesList(data.data);
                         if (data.type === 'SYNC_CHAT') setMessages(data.data);
                         if (data.type === 'CHAT_MSG') {
-                            setMessages(prev => [...prev, data.data]);
+                            const msg = { ...data.data };
+                            if (msg.sender === 'Host') msg.sender = 'Atticus'; // Display override
+                            setMessages(prev => [...prev, msg]);
                             if (!showChat) setIsChatNew(true);
                         }
                     });
