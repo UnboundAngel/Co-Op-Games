@@ -15,15 +15,8 @@
         .kawaii-btn { background: linear-gradient(135deg, #ec4899, #8b5cf6); color: white; transition: 0.3s; }
         .kawaii-btn:active { transform: scale(0.95); }
         .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        /* Hide scrollbar for Chrome, Safari and Opera */
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        /* Hide scrollbar for IE, Edge and Firefox */
-        .no-scrollbar {
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body>
@@ -32,20 +25,21 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
         
-        // Inline Icons to avoid UMD issues
         const Icon = ({ size = 24, color = "currentColor", children, className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
         );
 
-        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
+        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
         const Send = (props) => <Icon {...props}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
         const X = (props) => <Icon {...props}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
         const ArrowRight = (props) => <Icon {...props}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></Icon>;
+        const RotateCcw = (props) => <Icon {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>;
 
         function RemoteApp() {
             const [status, setStatus] = useState('Connecting...');
             const [gameData, setGameData] = useState(null);
             const [results, setResults] = useState([]);
+            const [history, setHistory] = useState([]);
             const [messages, setMessages] = useState([]);
             const [conn, setConn] = useState(null);
             const [showChat, setShowChat] = useState(false);
@@ -67,6 +61,26 @@
                 }
             }, []);
 
+            // Load local history when gameData is available
+            useEffect(() => {
+                if (gameData && gameData.name) {
+                    const saved = localStorage.getItem(`nexus_history_${gameData.name}`);
+                    if (saved) {
+                        try {
+                            const parsed = JSON.parse(saved);
+                            setHistory(parsed);
+                        } catch(e) { console.error("History load error", e); }
+                    }
+                }
+            }, [gameData]);
+
+            // Save history
+            useEffect(() => {
+                if (gameData && gameData.name) {
+                    localStorage.setItem(`nexus_history_${gameData.name}`, JSON.stringify(history));
+                }
+            }, [history, gameData]);
+
             const connectToPeer = (id) => {
                 setStatus('Connecting...');
                 const peer = new Peer();
@@ -81,13 +95,15 @@
                     });
 
                     connection.on('data', (data) => {
-                        if (data.type === 'SYNC_GAME') setGameData(data.data);
-                        if (data.type === 'SYNC_RESULTS') setResults(data.data);
+                        if (data.type === 'SYNC_GAME') {
+                            setGameData(data.data);
+                        }
                         if (data.type === 'SYNC_CHAT') setMessages(data.data);
                         if (data.type === 'CHAT_MSG') {
                             setMessages(prev => [...prev, data.data]);
                             if (!showChat) setIsChatNew(true);
                         }
+                        // Ignore SYNC_RESULTS from host now, as we have local results
                     });
 
                     connection.on('close', () => {
@@ -108,20 +124,47 @@
                 });
             };
 
-            useEffect(() => {
-                if (showChat && chatEndRef.current) {
-                    chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                }
-            }, [messages, showChat]);
+            const drawCards = () => {
+                if (!gameData || !gameData.config) return;
+                
+                const { min, max, count } = gameData.config;
+                const pool = [];
+                const hSet = new Set(history);
 
-            const handleManualConnect = (e) => {
-                e.preventDefault();
-                if (manualId.trim()) {
-                    connectToPeer(manualId.trim());
+                // Simple pool generation excluding history
+                for (let i = parseInt(min); i <= parseInt(max); i++) {
+                    if (!hSet.has(i) && gameData.questions[i]) {
+                        pool.push(i);
+                    }
+                }
+
+                if (pool.length < parseInt(count)) {
+                    alert("No more unique questions available! Reset history to play again.");
+                    return;
+                }
+
+                // Fisher-Yates shuffle
+                for (let i = pool.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [pool[i], pool[j]] = [pool[j], pool[i]];
+                }
+
+                const draw = pool.slice(0, parseInt(count)).sort((a,b) => a-b);
+                setResults(draw);
+                setHistory(prev => [...prev, ...draw]);
+            };
+
+            const resetLocalHistory = () => {
+                if(confirm("Clear your local history for this game?")) {
+                    setHistory([]);
+                    setResults([]);
                 }
             };
 
-            const drawCards = () => conn && conn.send({ type: 'DRAW_REQUEST' });
+            const handleManualConnect = (e) => {
+                e.preventDefault();
+                if (manualId.trim()) connectToPeer(manualId.trim());
+            };
 
             const sendMsg = (e) => {
                 e.preventDefault();
@@ -129,6 +172,12 @@
                 conn.send({ type: 'CHAT', text: chatInput });
                 setChatInput('');
             };
+
+            useEffect(() => {
+                if (showChat && chatEndRef.current) {
+                    chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, [messages, showChat]);
 
             return (
                 <div className="min-h-screen p-6 flex flex-col items-center gap-8 relative overflow-hidden">
@@ -156,9 +205,14 @@
 
                     {isConnected && gameData && (
                         <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in z-10 pb-24">
-                            <div className="glass p-6 rounded-[2.5rem] text-center">
+                            <div className="glass p-6 rounded-[2.5rem] text-center relative">
                                 <h2 className="text-xl font-black text-white truncate">{gameData.name}</h2>
-                                <p className="text-[10px] font-bold opacity-40 uppercase mt-1">{Object.keys(gameData.questions).length} Questions Total</p>
+                                <p className="text-[10px] font-bold opacity-40 uppercase mt-1">
+                                    {Object.keys(gameData.questions).length} Qs • Local History: {history.length}
+                                </p>
+                                <button onClick={resetLocalHistory} className="absolute top-6 right-6 text-pink-500 hover:text-white transition-colors" title="Reset History">
+                                    <RotateCcw size={16} />
+                                </button>
                             </div>
 
                             <button onClick={drawCards} className="kawaii-btn w-full py-8 rounded-[2.5rem] text-2xl font-black uppercase shadow-2xl shadow-pink-500/20 active:scale-95 transition-transform">
@@ -166,6 +220,9 @@
                             </button>
 
                             <div className="flex flex-col gap-4 mt-4">
+                                {results.length === 0 && history.length === 0 && (
+                                    <p className="text-center text-white/30 text-sm font-bold italic">Ready to play!</p>
+                                )}
                                 {results.map((num, i) => (
                                     <div key={i} className="glass p-5 rounded-3xl flex items-center gap-4">
                                         <span className="text-3xl font-black italic text-white">#{num}</span>
