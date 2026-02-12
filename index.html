@@ -17,6 +17,9 @@
         .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .blur-reveal { filter: blur(8px); user-select: none; transition: filter 0.5s; cursor: pointer; }
+        .blur-reveal:hover { filter: blur(4px); }
+        .blur-reveal.revealed { filter: blur(0); cursor: text; user-select: text; }
     </style>
 </head>
 <body>
@@ -29,12 +32,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
         );
 
-        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
+        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
         const Send = (props) => <Icon {...props}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
         const X = (props) => <Icon {...props}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
         const ArrowRight = (props) => <Icon {...props}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></Icon>;
         const RotateCcw = (props) => <Icon {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>;
         const Grid = (props) => <Icon {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></Icon>;
+        const Eye = (props) => <Icon {...props}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></Icon>;
+        const EyeOff = (props) => <Icon {...props}><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></Icon>;
 
         function RemoteApp() {
             const [status, setStatus] = useState('Connecting...');
@@ -50,7 +55,8 @@
             const [isChatNew, setIsChatNew] = useState(false);
             const [manualId, setManualId] = useState('');
             const [isConnected, setIsConnected] = useState(false);
-            const [myAnswers, setMyAnswers] = useState({}); // Local input state
+            const [myAnswers, setMyAnswers] = useState({}); 
+            const [revealedCards, setRevealedCards] = useState(new Set());
             
             const chatEndRef = useRef(null);
 
@@ -149,12 +155,14 @@
                 const draw = pool.slice(0, parseInt(count)).sort((a,b) => a-b);
                 setResults(draw);
                 setHistory(prev => [...prev, ...draw]);
+                setRevealedCards(new Set()); // Reset reveals on new draw
             };
 
             const resetLocalHistory = () => {
                 if(confirm("Clear your local history for this game?")) {
                     setHistory([]);
                     setResults([]);
+                    setRevealedCards(new Set());
                 }
             };
 
@@ -180,7 +188,19 @@
             const submitAnswer = (qId, text) => {
                 if (conn) {
                     conn.send({ type: 'SUBMIT_ANSWER', questionId: qId, sender: 'Friend', text });
+                    if (text.trim().length > 0) {
+                        setRevealedCards(prev => new Set(prev).add(qId));
+                    }
                 }
+            };
+
+            const toggleReveal = (qId) => {
+                setRevealedCards(prev => {
+                    const next = new Set(prev);
+                    if(next.has(qId)) next.delete(qId);
+                    else next.add(qId);
+                    return next;
+                });
             };
 
             useEffect(() => {
@@ -239,31 +259,45 @@
                                 {results.length === 0 && history.length === 0 && (
                                     <p className="text-center text-white/30 text-sm font-bold italic">Ready to play!</p>
                                 )}
-                                {results.map((num, i) => (
-                                    <div key={i} className="glass p-5 rounded-3xl flex flex-col gap-4">
-                                        <div className="flex items-center gap-4">
-                                            <span className="text-3xl font-black italic text-white">#{num}</span>
-                                            <p className="text-sm font-bold opacity-80 leading-tight">
-                                                {gameData.questions[num]?.text || '---'}
-                                            </p>
+                                {results.map((num, i) => {
+                                    const isRevealed = revealedCards.has(num);
+                                    return (
+                                        <div key={i} className="glass p-5 rounded-3xl flex flex-col gap-4 relative">
+                                            <button 
+                                                onClick={() => toggleReveal(num)}
+                                                className="absolute top-4 right-4 text-pink-300/50 hover:text-white transition-colors"
+                                            >
+                                                {isRevealed ? <EyeOff size={16}/> : <Eye size={16}/>}
+                                            </button>
+                                            
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-3xl font-black italic text-white">#{num}</span>
+                                                <p 
+                                                    className={`text-sm font-bold opacity-80 leading-tight transition-all duration-500 ${isRevealed ? 'blur-0' : 'blur-md select-none'}`}
+                                                    onClick={() => !isRevealed && toggleReveal(num)}
+                                                >
+                                                    {gameData.questions[num]?.text || '---'}
+                                                </p>
+                                            </div>
+                                            
+                                            <div className="relative">
+                                                <input 
+                                                    placeholder="Your answer..."
+                                                    className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-pink-500/50 transition-colors"
+                                                    value={myAnswers[num] || ''}
+                                                    onChange={e => setMyAnswers(prev => ({ ...prev, [num]: e.target.value }))}
+                                                    onBlur={(e) => submitAnswer(num, e.target.value)}
+                                                    onKeyDown={(e) => { if(e.key === 'Enter') { e.currentTarget.blur(); } }}
+                                                />
+                                                {gameData.answers && gameData.answers[num] && Object.values(gameData.answers[num]).length > 0 && (
+                                                     <div className="mt-2 text-[10px] text-pink-300 opacity-60 italic">
+                                                        {Object.keys(gameData.answers[num]).length} answer(s) submitted
+                                                     </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="relative">
-                                            <input 
-                                                placeholder="Your answer..."
-                                                className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-pink-500/50 transition-colors"
-                                                value={myAnswers[num] || ''}
-                                                onChange={e => setMyAnswers(prev => ({ ...prev, [num]: e.target.value }))}
-                                                onBlur={(e) => submitAnswer(num, e.target.value)}
-                                                onKeyDown={(e) => { if(e.key === 'Enter') { e.currentTarget.blur(); } }}
-                                            />
-                                            {gameData.answers && gameData.answers[num] && Object.values(gameData.answers[num]).length > 0 && (
-                                                 <div className="mt-2 text-[10px] text-pink-300 opacity-60 italic">
-                                                    {Object.keys(gameData.answers[num]).length} answer(s) submitted
-                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
