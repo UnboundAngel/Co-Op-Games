@@ -29,24 +29,28 @@
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
         );
 
-        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
+        const MessageCircle = (props) => <Icon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
         const Send = (props) => <Icon {...props}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
         const X = (props) => <Icon {...props}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
         const ArrowRight = (props) => <Icon {...props}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></Icon>;
         const RotateCcw = (props) => <Icon {...props}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></Icon>;
+        const Grid = (props) => <Icon {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></Icon>;
 
         function RemoteApp() {
             const [status, setStatus] = useState('Connecting...');
             const [gameData, setGameData] = useState(null);
+            const [gamesList, setGamesList] = useState([]);
             const [results, setResults] = useState([]);
             const [history, setHistory] = useState([]);
             const [messages, setMessages] = useState([]);
             const [conn, setConn] = useState(null);
             const [showChat, setShowChat] = useState(false);
+            const [showGames, setShowGames] = useState(false);
             const [chatInput, setChatInput] = useState('');
             const [isChatNew, setIsChatNew] = useState(false);
             const [manualId, setManualId] = useState('');
             const [isConnected, setIsConnected] = useState(false);
+            const [myAnswers, setMyAnswers] = useState({}); // Local input state
             
             const chatEndRef = useRef(null);
 
@@ -61,20 +65,17 @@
                 }
             }, []);
 
-            // Load local history when gameData is available
             useEffect(() => {
                 if (gameData && gameData.name) {
                     const saved = localStorage.getItem(`nexus_history_${gameData.name}`);
                     if (saved) {
                         try {
-                            const parsed = JSON.parse(saved);
-                            setHistory(parsed);
-                        } catch(e) { console.error("History load error", e); }
+                            setHistory(JSON.parse(saved));
+                        } catch(e) {}
                     }
                 }
             }, [gameData]);
 
-            // Save history
             useEffect(() => {
                 if (gameData && gameData.name) {
                     localStorage.setItem(`nexus_history_${gameData.name}`, JSON.stringify(history));
@@ -95,15 +96,13 @@
                     });
 
                     connection.on('data', (data) => {
-                        if (data.type === 'SYNC_GAME') {
-                            setGameData(data.data);
-                        }
+                        if (data.type === 'SYNC_GAME') setGameData(data.data);
+                        if (data.type === 'SYNC_GAMES_LIST') setGamesList(data.data);
                         if (data.type === 'SYNC_CHAT') setMessages(data.data);
                         if (data.type === 'CHAT_MSG') {
                             setMessages(prev => [...prev, data.data]);
                             if (!showChat) setIsChatNew(true);
                         }
-                        // Ignore SYNC_RESULTS from host now, as we have local results
                     });
 
                     connection.on('close', () => {
@@ -131,7 +130,6 @@
                 const pool = [];
                 const hSet = new Set(history);
 
-                // Simple pool generation excluding history
                 for (let i = parseInt(min); i <= parseInt(max); i++) {
                     if (!hSet.has(i) && gameData.questions[i]) {
                         pool.push(i);
@@ -143,7 +141,6 @@
                     return;
                 }
 
-                // Fisher-Yates shuffle
                 for (let i = pool.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
                     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -173,6 +170,19 @@
                 setChatInput('');
             };
 
+            const proposeGame = (id, name) => {
+                if(conn && confirm(`Suggest to play "${name}"?`)) {
+                    conn.send({ type: 'PROPOSE_GAME', id, name });
+                    setShowGames(false);
+                }
+            };
+
+            const submitAnswer = (qId, text) => {
+                if (conn) {
+                    conn.send({ type: 'SUBMIT_ANSWER', questionId: qId, sender: 'Friend', text });
+                }
+            };
+
             useEffect(() => {
                 if (showChat && chatEndRef.current) {
                     chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -181,13 +191,19 @@
 
             return (
                 <div className="min-h-screen p-6 flex flex-col items-center gap-8 relative overflow-hidden">
-                    <header className="text-center mt-10 z-10">
-                        <h1 className="text-3xl font-black uppercase tracking-tighter italic">Game <span className="text-white">Remote</span></h1>
-                        <p className={`text-xs font-bold uppercase mt-2 ${status.includes('Connected') ? 'text-emerald-400' : 'text-pink-500'}`}>{status}</p>
+                    <header className="w-full flex justify-between items-center mt-6 z-10 px-4">
+                        <div className="w-10"></div> {/* Spacer */}
+                        <div className="text-center">
+                            <h1 className="text-3xl font-black uppercase tracking-tighter italic">Game <span className="text-white">Remote</span></h1>
+                            <p className={`text-xs font-bold uppercase mt-1 ${status.includes('Connected') ? 'text-emerald-400' : 'text-pink-500'}`}>{status}</p>
+                        </div>
+                        <button onClick={() => setShowGames(true)} className="w-10 h-10 flex items-center justify-center bg-white/5 rounded-full hover:bg-pink-500 hover:text-white transition-colors text-pink-300">
+                            <Grid size={20} />
+                        </button>
                     </header>
 
                     {!isConnected && (
-                        <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10">
+                        <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10 mt-10">
                             <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
                                 <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
                                 <input 
@@ -219,18 +235,61 @@
                                 Draw Cards ✨
                             </button>
 
-                            <div className="flex flex-col gap-4 mt-4">
+                            <div className="flex flex-col gap-6 mt-4">
                                 {results.length === 0 && history.length === 0 && (
                                     <p className="text-center text-white/30 text-sm font-bold italic">Ready to play!</p>
                                 )}
                                 {results.map((num, i) => (
-                                    <div key={i} className="glass p-5 rounded-3xl flex items-center gap-4">
-                                        <span className="text-3xl font-black italic text-white">#{num}</span>
-                                        <p className="text-sm font-bold opacity-80 leading-tight">
-                                            {gameData.questions[num]?.text || '---'}
-                                        </p>
+                                    <div key={i} className="glass p-5 rounded-3xl flex flex-col gap-4">
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-3xl font-black italic text-white">#{num}</span>
+                                            <p className="text-sm font-bold opacity-80 leading-tight">
+                                                {gameData.questions[num]?.text || '---'}
+                                            </p>
+                                        </div>
+                                        <div className="relative">
+                                            <input 
+                                                placeholder="Your answer..."
+                                                className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-pink-500/50 transition-colors"
+                                                value={myAnswers[num] || ''}
+                                                onChange={e => setMyAnswers(prev => ({ ...prev, [num]: e.target.value }))}
+                                                onBlur={(e) => submitAnswer(num, e.target.value)}
+                                                onKeyDown={(e) => { if(e.key === 'Enter') { e.currentTarget.blur(); } }}
+                                            />
+                                            {gameData.answers && gameData.answers[num] && Object.values(gameData.answers[num]).length > 0 && (
+                                                 <div className="mt-2 text-[10px] text-pink-300 opacity-60 italic">
+                                                    {Object.keys(gameData.answers[num]).length} answer(s) submitted
+                                                 </div>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Games List Modal */}
+                    {showGames && (
+                        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in">
+                            <div className="bg-[#1a1329] border border-white/10 rounded-[2.5rem] w-full max-w-sm max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+                                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-pink-500/10">
+                                    <h3 className="font-black uppercase text-sm tracking-widest text-pink-300">Games Library</h3>
+                                    <button onClick={() => setShowGames(false)}><X size={20} className="text-pink-300 hover:text-white" /></button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 no-scrollbar">
+                                    {gamesList.map(g => (
+                                        <div key={g.id} className="p-4 bg-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-colors">
+                                            <span className="font-bold text-sm text-pink-100">{g.name}</span>
+                                            <button 
+                                                onClick={() => proposeGame(g.id, g.name)}
+                                                className="px-3 py-1.5 bg-pink-500/20 text-pink-300 text-[10px] uppercase font-black tracking-wider rounded-lg hover:bg-pink-500 hover:text-white transition-all"
+                                            >
+                                                Suggest
+                                            </button>
+                                        </div>
+                                    ))}
+                                    {gamesList.length === 0 && <p className="text-center opacity-30 text-xs py-8">No other games available</p>}
+                                </div>
                             </div>
                         </div>
                     )}
