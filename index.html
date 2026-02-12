@@ -84,7 +84,7 @@
 
         function RemoteApp() {
             const [status, setStatus] = useState('Initializing...');
-            const [view, setView] = useState('play'); // 'play' or 'summary'
+            const [view, setView] = useState('play'); 
             const [gameData, setGameData] = useState(null);
             const [gamesList, setGamesList] = useState([]);
             const [results, setResults] = useState([]);
@@ -93,9 +93,12 @@
             const [conn, setConn] = useState(null);
             const [showChat, setShowChat] = useState(false);
             const [showGames, setShowGames] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
             const [chatInput, setChatInput] = useState('');
             const [isChatNew, setIsChatNew] = useState(false);
             const [manualId, setManualId] = useState('');
+            const [serverHost, setServerHost] = useState('');
+            const [serverPort, setServerPort] = useState('25565');
             const [isConnected, setIsConnected] = useState(false);
             const [myAnswers, setMyAnswers] = useState({}); 
             const [revealedCards, setRevealedCards] = useState(new Set());
@@ -104,40 +107,49 @@
             const reportRef = useRef(null);
 
             useEffect(() => {
-                const urlParams = new URLSearchParams(window.location.search);
-                const targetId = urlParams.get('id');
-                const lastHostId = localStorage.getItem('last_host_id');
+                const params = new URLSearchParams(window.location.search);
+                const targetId = params.get('id');
+                const host = params.get('host');
+                const port = params.get('port');
+                
+                if (host) setServerHost(host);
+                if (port) setServerPort(port);
 
-                if (targetId) {
-                    connectToPeer(targetId);
-                } else if (lastHostId) {
-                    console.log("Found saved session, reconnecting...", lastHostId);
-                    connectToPeer(lastHostId);
+                const lastHostId = localStorage.getItem('last_host_id');
+                const lastHostUrl = localStorage.getItem('last_host_url'); // store host:port
+
+                if (targetId && host) {
+                    connectToPeer(targetId, host, port || '25565');
+                } else if (lastHostId && lastHostUrl) {
+                    const [savedHost, savedPort] = lastHostUrl.split(':');
+                    console.log("Found saved session, reconnecting...", lastHostId, savedHost, savedPort);
+                    setServerHost(savedHost);
+                    setServerPort(savedPort);
+                    connectToPeer(lastHostId, savedHost, savedPort);
                 } else {
                     setStatus('Enter Game Code');
                 }
             }, []);
 
-            useEffect(() => {
-                if (gameData && gameData.name) {
-                    const saved = localStorage.getItem(`nexus_history_${gameData.name}`);
-                    if (saved) {
-                        try {
-                            setHistory(JSON.parse(saved));
-                        } catch(e) {}
-                    }
-                }
-            }, [gameData]);
+            // ... (history effects) ...
 
-            useEffect(() => {
-                if (gameData && gameData.name) {
-                    localStorage.setItem(`nexus_history_${gameData.name}`, JSON.stringify(history));
-                }
-            }, [history, gameData]);
-
-            const connectToPeer = (id) => {
+            const connectToPeer = (id, host, port) => {
                 setStatus('Connecting...');
-                const peer = new Peer();
+                
+                // Config: If host is provided, use it. Otherwise default to cloud (empty config).
+                // Actually, if self-hosting, we need path: '/myapp' too as per run-peer-server.js
+                // I'll assume if host is provided, we use the self-hosted config structure.
+                
+                let peerConfig = undefined;
+                if (host) {
+                    peerConfig = {
+                        host: host,
+                        port: parseInt(port),
+                        path: '/myapp' // Hardcoded to match our server script
+                    };
+                }
+
+                const peer = new Peer(peerConfig);
                 
                 peer.on('open', () => {
                     const connection = peer.connect(id);
@@ -146,8 +158,10 @@
                         setConn(connection);
                         setStatus('Connected ✨');
                         setIsConnected(true);
-                        localStorage.setItem('last_host_id', id); // Persist ID
+                        localStorage.setItem('last_host_id', id);
+                        if (host) localStorage.setItem('last_host_url', `${host}:${port}`);
                     });
+                    // ... (rest of listeners)
 
                     connection.on('data', (data) => {
                         if (data.type === 'SYNC_GAME') setGameData(data.data);
@@ -262,7 +276,7 @@
 
             const handleManualConnect = (e) => {
                 e.preventDefault();
-                if (manualId.trim()) connectToPeer(manualId.trim());
+                if (manualId.trim()) connectToPeer(manualId.trim(), serverHost, serverPort);
             };
 
             const sendMsg = (e) => {
@@ -336,23 +350,44 @@
 
                     {view === 'play' ? (
                         <>
-                            {!isConnected && (
-                                <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10 mt-10">
-                                    <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
-                                        <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
-                                        <input 
-                                            value={manualId}
-                                            onChange={e => setManualId(e.target.value)}
-                                            placeholder="paste-code-here"
-                                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-center text-lg font-bold text-white outline-none focus:border-pink-500/50 transition-colors placeholder:text-white/10"
-                                        />
-                                        <button type="submit" className="kawaii-btn w-full py-4 rounded-2xl text-lg font-black uppercase shadow-xl mt-2 flex items-center justify-center gap-2">
-                                            Join <ArrowRight size={20} />
-                                        </button>
-                                    </div>
-                                </form>
-                            )}
-
+                                                {!isConnected && (
+                                                    <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10 mt-10">
+                                                        <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
+                                                            <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
+                                                            <input 
+                                                                value={manualId}
+                                                                onChange={e => setManualId(e.target.value)}
+                                                                placeholder="paste-code-here"
+                                                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-center text-lg font-bold text-white outline-none focus:border-pink-500/50 transition-colors placeholder:text-white/10"
+                                                            />
+                                                            
+                                                            <button type="button" onClick={() => setShowSettings(!showSettings)} className="text-[10px] font-bold uppercase text-pink-300/50 hover:text-pink-300 transition-colors flex items-center justify-center gap-1">
+                                                                {showSettings ? 'Hide' : 'Show'} Server Settings
+                                                            </button>
+                                                            
+                                                            {showSettings && (
+                                                                <div className="flex gap-2 animate-in slide-in-from-top-2">
+                                                                    <input 
+                                                                        value={serverHost}
+                                                                        onChange={e => setServerHost(e.target.value)}
+                                                                        placeholder="Host (IP)"
+                                                                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-pink-500/50 text-center"
+                                                                    />
+                                                                    <input 
+                                                                        value={serverPort}
+                                                                        onChange={e => setServerPort(e.target.value)}
+                                                                        placeholder="Port"
+                                                                        className="w-20 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-pink-500/50 text-center"
+                                                                    />
+                                                                </div>
+                                                            )}
+                            
+                                                            <button type="submit" className="kawaii-btn w-full py-4 rounded-2xl text-lg font-black uppercase shadow-xl mt-2 flex items-center justify-center gap-2">
+                                                                Join <ArrowRight size={20} />
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                )}
                             {isConnected && gameData && (
                                 <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in z-10 pb-24">
                                     <div className="glass p-6 rounded-[2.5rem] text-center relative">
