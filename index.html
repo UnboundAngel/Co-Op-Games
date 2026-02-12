@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus Remote</title>
+    <title>Game Remote</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -33,7 +33,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-        const { MessageCircle, Send, X } = lucide;
+        const { MessageCircle, Send, X, ArrowRight } = lucide;
 
         function RemoteApp() {
             const [status, setStatus] = useState('Connecting...');
@@ -44,6 +44,8 @@
             const [showChat, setShowChat] = useState(false);
             const [chatInput, setChatInput] = useState('');
             const [isChatNew, setIsChatNew] = useState(false);
+            const [manualId, setManualId] = useState('');
+            const [isConnected, setIsConnected] = useState(false);
             
             const chatEndRef = useRef(null);
 
@@ -51,23 +53,27 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const targetId = urlParams.get('id');
 
-                if (!targetId) {
-                    setStatus('No Nexus ID found in URL!');
-                    return;
+                if (targetId) {
+                    connectToPeer(targetId);
+                } else {
+                    setStatus('Enter Game Code');
                 }
+            }, []);
 
+            const connectToPeer = (id) => {
+                setStatus('Connecting...');
                 const peer = new Peer();
                 
                 peer.on('open', () => {
-                    const connection = peer.connect(targetId);
+                    const connection = peer.connect(id);
                     
                     connection.on('open', () => {
                         setConn(connection);
                         setStatus('Connected ✨');
+                        setIsConnected(true);
                     });
 
                     connection.on('data', (data) => {
-                        console.log('Received:', data.type);
                         if (data.type === 'SYNC_GAME') setGameData(data.data);
                         if (data.type === 'SYNC_RESULTS') setResults(data.data);
                         if (data.type === 'SYNC_CHAT') setMessages(data.data);
@@ -77,16 +83,23 @@
                         }
                     });
 
-                    connection.on('close', () => setStatus('Disconnected ❌'));
-                    connection.on('error', (err) => console.error('Connection Error:', err));
+                    connection.on('close', () => {
+                        setStatus('Disconnected ❌');
+                        setIsConnected(false);
+                        setGameData(null);
+                    });
+                    
+                    connection.on('error', (err) => {
+                        console.error('Connection Error:', err);
+                        setStatus('Connection Failed ❌');
+                    });
                 });
 
                 peer.on('error', (err) => {
                     console.error('Peer Error:', err);
                     setStatus(`Error: ${err.type}`);
                 });
-
-            }, []);
+            };
 
             useEffect(() => {
                 if (showChat && chatEndRef.current) {
@@ -94,32 +107,47 @@
                 }
             }, [messages, showChat]);
 
+            const handleManualConnect = (e) => {
+                e.preventDefault();
+                if (manualId.trim()) {
+                    connectToPeer(manualId.trim());
+                }
+            };
+
             const drawCards = () => conn && conn.send({ type: 'DRAW_REQUEST' });
 
             const sendMsg = (e) => {
                 e.preventDefault();
                 if (!chatInput.trim() || !conn) return;
-                
-                // Send to host
                 conn.send({ type: 'CHAT', text: chatInput });
-                
-                // Optimistically add to local UI (optional, but host usually broadcasts back)
-                // For now, let's wait for host broadcast to avoid duplicates or assume host handles it
-                // Actually, let's mirror what App.tsx does: it adds locally then broadcasts. 
-                // But here we are the client. The host logic in App.tsx receives 'CHAT', adds it, and broadcasts 'CHAT_MSG'.
-                // So we should wait for 'CHAT_MSG' to update our UI to keep in sync.
-                
                 setChatInput('');
             };
 
             return (
                 <div className="min-h-screen p-6 flex flex-col items-center gap-8 relative overflow-hidden">
                     <header className="text-center mt-10 z-10">
-                        <h1 className="text-3xl font-black uppercase tracking-tighter italic">Nexus <span className="text-white">Remote</span></h1>
+                        <h1 className="text-3xl font-black uppercase tracking-tighter italic">Game <span className="text-white">Remote</span></h1>
                         <p className={`text-xs font-bold uppercase mt-2 ${status.includes('Connected') ? 'text-emerald-400' : 'text-pink-500'}`}>{status}</p>
                     </header>
 
-                    {gameData && (
+                    {!isConnected && (
+                        <form onSubmit={handleManualConnect} className="w-full max-w-sm flex flex-col gap-4 animate-in fade-in z-10">
+                            <div className="glass p-8 rounded-[2.5rem] flex flex-col gap-4 text-center">
+                                <label className="text-xs font-black uppercase opacity-60 tracking-widest">Enter Game Code</label>
+                                <input 
+                                    value={manualId}
+                                    onChange={e => setManualId(e.target.value)}
+                                    placeholder="paste-code-here"
+                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-center text-lg font-bold text-white outline-none focus:border-pink-500/50 transition-colors placeholder:text-white/10"
+                                />
+                                <button type="submit" className="kawaii-btn w-full py-4 rounded-2xl text-lg font-black uppercase shadow-xl mt-2 flex items-center justify-center gap-2">
+                                    Join <ArrowRight size={20} />
+                                </button>
+                            </div>
+                        </form>
+                    )}
+
+                    {isConnected && gameData && (
                         <div className="w-full max-w-sm flex flex-col gap-6 animate-in fade-in z-10 pb-24">
                             <div className="glass p-6 rounded-[2.5rem] text-center">
                                 <h2 className="text-xl font-black text-white truncate">{gameData.name}</h2>
@@ -143,54 +171,55 @@
                         </div>
                     )}
 
-                    {/* Chat Interface */}
-                    <div className={`fixed bottom-6 right-6 z-50 transition-all duration-300 ease-in-out ${showChat ? 'w-[90vw] max-w-sm h-[60vh]' : 'w-14 h-14'}`}>
-                        {!showChat ? (
-                            <button 
-                                onClick={() => { setShowChat(true); setIsChatNew(false); }} 
-                                className="w-full h-full bg-pink-500 text-white rounded-full flex items-center justify-center shadow-2xl hover:scale-110 transition-transform relative border-none cursor-pointer"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                                {isChatNew && <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full border-2 border-[#ec4899] animate-bounce" />}
-                            </button>
-                        ) : (
-                            <div className="w-full h-full bg-[#1a1329]/95 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden">
-                                <div className="p-4 bg-pink-500/10 border-b border-white/5 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <svg className="text-pink-400" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                                        <h3 className="font-black uppercase text-xs tracking-widest text-pink-300">Chat</h3>
-                                    </div>
-                                    <button onClick={() => setShowChat(false)} className="p-1 hover:text-white text-pink-300 transition-colors">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                    </button>
-                                </div>
-                                
-                                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 no-scrollbar">
-                                    {messages.map((m, i) => (
-                                        <div key={i} className={`flex flex-col ${m.sender === 'Host' ? 'items-start' : 'items-end'}`}>
-                                            <span className="text-[8px] font-black uppercase opacity-30 mb-1 px-1">{m.sender} • {m.time}</span>
-                                            <p className={`px-3 py-2 rounded-2xl text-xs font-bold max-w-[90%] shadow-lg ${m.sender === 'Host' ? 'bg-white/10 text-pink-100 rounded-tl-none' : 'bg-pink-500 text-white rounded-tr-none'}`}>
-                                                {m.text}
-                                            </p>
+                    {isConnected && (
+                        <div className={`fixed bottom-6 right-6 z-50 transition-all duration-300 ease-in-out ${showChat ? 'w-[90vw] max-w-sm h-[60vh]' : 'w-14 h-14'}`}>
+                            {!showChat ? (
+                                <button 
+                                    onClick={() => { setShowChat(true); setIsChatNew(false); }} 
+                                    className="w-full h-full bg-pink-500 text-white rounded-full flex items-center justify-center shadow-2xl hover:scale-110 transition-transform relative border-none cursor-pointer"
+                                >
+                                    <MessageCircle size={24} />
+                                    {isChatNew && <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full border-2 border-[#ec4899] animate-bounce" />}
+                                </button>
+                            ) : (
+                                <div className="w-full h-full bg-[#1a1329]/95 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden">
+                                    <div className="p-4 bg-pink-500/10 border-b border-white/5 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <MessageCircle size={18} className="text-pink-400" />
+                                            <h3 className="font-black uppercase text-xs tracking-widest text-pink-300">Chat</h3>
                                         </div>
-                                    ))}
-                                    <div ref={chatEndRef} />
+                                        <button onClick={() => setShowChat(false)} className="p-1 hover:text-white text-pink-300 transition-colors">
+                                            <X size={20} />
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 no-scrollbar">
+                                        {messages.map((m, i) => (
+                                            <div key={i} className={`flex flex-col ${m.sender === 'Host' ? 'items-start' : 'items-end'}`}>
+                                                <span className="text-[8px] font-black uppercase opacity-30 mb-1 px-1">{m.sender} • {m.time}</span>
+                                                <p className={`px-3 py-2 rounded-2xl text-xs font-bold max-w-[90%] shadow-lg ${m.sender === 'Host' ? 'bg-white/10 text-pink-100 rounded-tl-none' : 'bg-pink-500 text-white rounded-tr-none'}`}>
+                                                    {m.text}
+                                                </p>
+                                            </div>
+                                        ))}
+                                        <div ref={chatEndRef} />
+                                    </div>
+                                    
+                                    <form onSubmit={sendMsg} className="p-3 bg-black/20 flex gap-2">
+                                        <input 
+                                            value={chatInput} 
+                                            onChange={e => setChatInput(e.target.value)} 
+                                            className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-2 text-sm outline-none focus:border-pink-500/50 text-pink-100" 
+                                            placeholder="Type..." 
+                                        />
+                                        <button type="submit" className="p-2 bg-pink-500 rounded-full text-white active:scale-95 transition-transform border-none">
+                                            <Send size={16} />
+                                        </button>
+                                    </form>
                                 </div>
-                                
-                                <form onSubmit={sendMsg} className="p-3 bg-black/20 flex gap-2">
-                                    <input 
-                                        value={chatInput} 
-                                        onChange={e => setChatInput(e.target.value)} 
-                                        className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-2 text-sm outline-none focus:border-pink-500/50 text-pink-100" 
-                                        placeholder="Type..." 
-                                    />
-                                    <button type="submit" className="p-2 bg-pink-500 rounded-full text-white active:scale-95 transition-transform border-none">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                                    </button>
-                                </form>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             );
         }
